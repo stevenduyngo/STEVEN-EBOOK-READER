@@ -1,0 +1,2173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Steven N. Ebook" />
+  <title>Steven N. Ebook — AI Context EPUB Reader</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --reader-bg: #fbf6ec;
+      --reader-text: #24211d;
+      --reader-muted: #6e655a;
+      --reader-surface: #f2eadb;
+      --reader-border: rgba(36, 33, 29, 0.12);
+      --reader-accent: #b45309;
+      --reader-highlight: rgba(245, 158, 11, 0.28);
+      --reader-font-size: 19px;
+      --reader-line-height: 1.75;
+      --reader-font-family: 'Literata', Georgia, Cambria, serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--reader-bg);
+      color: var(--reader-text);
+      transition: background-color 0.25s ease, color 0.25s ease;
+      overflow-x: hidden;
+    }
+
+    .reader-prose {
+      font-family: var(--reader-font-family);
+      font-size: var(--reader-font-size);
+      line-height: var(--reader-line-height);
+      color: var(--reader-text);
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
+    .reader-prose h1,
+    .reader-prose h2,
+    .reader-prose h3,
+    .reader-prose h4 {
+      font-weight: 600;
+      line-height: 1.3;
+      margin-top: 1.6em;
+      margin-bottom: 0.7em;
+      color: var(--reader-text);
+    }
+
+    .reader-prose h1 { font-size: 1.65em; }
+    .reader-prose h2 { font-size: 1.35em; }
+    .reader-prose h3 { font-size: 1.15em; }
+
+    .reader-prose p {
+      margin-top: 0;
+      margin-bottom: 1.15em;
+      text-align: left;
+    }
+
+    .reader-prose img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      margin: 1.25em auto;
+      display: block;
+    }
+
+    .reader-prose blockquote {
+      border-left: 3px solid var(--reader-accent);
+      padding-left: 1em;
+      margin: 1.2em 0;
+      font-style: italic;
+      opacity: 0.9;
+    }
+
+    .word-token {
+      cursor: pointer;
+      border-radius: 3px;
+      transition: background-color 0.12s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .word-token:hover {
+      background-color: var(--reader-highlight);
+    }
+
+    .word-token.active-word {
+      background-color: var(--reader-highlight);
+      box-shadow: 0 0 0 2px var(--reader-highlight);
+    }
+
+    .word-token.tts-active-word {
+      background-color: rgba(217, 119, 6, 0.42);
+      box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.42);
+      border-radius: 3px;
+    }
+
+    .word-token.tts-sentence-word {
+      background-color: rgba(245, 158, 11, 0.12);
+    }
+
+    .surface-panel {
+      background-color: var(--reader-surface);
+      border-color: var(--reader-border);
+      color: var(--reader-text);
+    }
+
+    .muted-text {
+      color: var(--reader-muted);
+    }
+
+    .border-themed {
+      border-color: var(--reader-border);
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(128, 128, 128, 0.3);
+      border-radius: 9999px;
+    }
+
+    @keyframes pulseDot {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    .dot-pulse span {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 9999px;
+      background-color: currentColor;
+      animation: pulseDot 1.2s infinite ease-in-out both;
+    }
+    .dot-pulse span:nth-child(2) { animation-delay: 0.2s; }
+    .dot-pulse span:nth-child(3) { animation-delay: 0.4s; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Navigation Bar -->
+  <header class="sticky top-0 z-30 border-b border-themed backdrop-blur-md transition-colors" style="background-color: color-mix(in srgb, var(--reader-bg) 88%, transparent);">
+    <div class="max-w-5xl mx-auto px-3 sm:px-5 h-14 flex items-center justify-between gap-2">
+      <!-- Left: Menu & Book Info -->
+      <div class="flex items-center gap-2 min-w-0">
+        <button id="btn-drawer" type="button" title="Library & Chapters" class="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors shrink-0" aria-label="Open Library and Chapters">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10"/></svg>
+        </button>
+        <div class="min-w-0">
+          <div id="header-book-title" class="text-sm font-semibold truncate">Loading...</div>
+          <div id="header-chapter-title" class="text-xs muted-text truncate">Chapter 1</div>
+        </div>
+      </div>
+
+      <!-- Right: Actions -->
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button id="btn-toggle-player" type="button" title="Read-Along & Audiobook Player" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-themed hover:bg-black/5 transition-colors">
+          <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+          <span class="hidden md:inline">Listen</span>
+        </button>
+
+        <label for="epub-file-input" class="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-themed hover:bg-black/5 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+          <span class="hidden sm:inline">Import EPUB</span>
+          <span class="sm:hidden">EPUB</span>
+        </label>
+        <input id="epub-file-input" type="file" accept=".epub,application/epub+zip" class="hidden" />
+        <input id="audio-file-input" type="file" accept="audio/*,.mp3,.m4a,.m4b,.wav,.ogg" class="hidden" />
+
+        <button id="btn-appearance" type="button" title="Text Size & Background" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-themed hover:bg-black/5 transition-colors" aria-label="Appearance Settings">
+          <span class="font-serif text-sm leading-none">Aa</span>
+        </button>
+
+        <button id="btn-ai-settings" type="button" title="AI Settings" class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-themed hover:bg-black/5 transition-colors" aria-label="AI Settings">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
+          <span id="ai-mode-badge" class="hidden md:inline">AI</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Appearance Popover -->
+  <div id="appearance-popover" class="hidden fixed top-16 right-3 sm:right-6 z-40 w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border shadow-xl p-4 surface-panel">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-sm font-semibold">Reading Appearance</h3>
+      <button id="btn-close-appearance" type="button" class="p-1 rounded-md hover:bg-black/5 muted-text" aria-label="Close appearance settings">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Text Size -->
+    <div class="mb-4">
+      <div class="flex items-center justify-between text-xs mb-1.5">
+        <span class="font-medium muted-text">Text Size</span>
+        <span id="font-size-label" class="font-semibold">19px</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btn-font-dec" type="button" class="w-9 h-9 rounded-lg border border-themed flex items-center justify-center text-sm font-semibold hover:bg-black/5">A-</button>
+        <input id="font-size-slider" type="range" min="13" max="32" step="1" value="19" class="flex-1 accent-amber-600 cursor-pointer" />
+        <button id="btn-font-inc" type="button" class="w-9 h-9 rounded-lg border border-themed flex items-center justify-center text-base font-semibold hover:bg-black/5">A+</button>
+      </div>
+    </div>
+
+    <!-- Font Family -->
+    <div class="mb-4">
+      <div class="text-xs font-medium muted-text mb-1.5">Typeface</div>
+      <div class="grid grid-cols-2 gap-2">
+        <button id="btn-font-serif" type="button" class="px-3 py-2 rounded-lg border border-themed text-xs font-serif font-medium transition-colors">Serif (Literata)</button>
+        <button id="btn-font-sans" type="button" class="px-3 py-2 rounded-lg border border-themed text-xs font-sans font-medium transition-colors">Sans (Inter)</button>
+      </div>
+    </div>
+
+    <!-- Background Color Themes -->
+    <div class="mb-3">
+      <div class="text-xs font-medium muted-text mb-2">Background Color</div>
+      <div id="theme-swatches" class="grid grid-cols-3 gap-2">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- Custom Background Color Picker -->
+    <div class="pt-2 border-t border-themed flex items-center justify-between">
+      <span class="text-xs font-medium muted-text">Custom Background</span>
+      <div class="flex items-center gap-2">
+        <input id="custom-bg-picker" type="color" value="#fbf6ec" class="w-8 h-7 rounded cursor-pointer border-0 bg-transparent p-0" title="Pick custom background color" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Library & TOC Slide-Over Drawer -->
+  <div id="drawer-backdrop" class="hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"></div>
+  <aside id="side-drawer" class="fixed top-0 left-0 z-50 h-full w-80 max-w-[85vw] border-r shadow-2xl transform -translate-x-full transition-transform duration-200 flex flex-col surface-panel">
+    <div class="p-4 border-b border-themed flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="font-semibold text-base">Steven N. Ebook</span>
+      </div>
+      <button id="btn-close-drawer" type="button" class="p-1.5 rounded-lg hover:bg-black/5 muted-text" aria-label="Close menu">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Drawer Tabs -->
+    <div class="grid grid-cols-3 border-b border-themed text-xs font-medium">
+      <button id="tab-chapters" type="button" class="py-2.5 border-b-2 border-amber-600 font-semibold">Chapters</button>
+      <button id="tab-library" type="button" class="py-2.5 border-b-2 border-transparent muted-text">Library</button>
+      <button id="tab-saved" type="button" class="py-2.5 border-b-2 border-transparent muted-text">Saved (<span id="saved-count">0</span>)</button>
+    </div>
+
+    <!-- Drawer Content -->
+    <div id="drawer-content" class="flex-1 overflow-y-auto p-3 space-y-2">
+      <!-- Populated dynamically -->
+    </div>
+
+    <!-- Import CTA in Drawer Footer -->
+    <div class="p-3 border-t border-themed space-y-2">
+      <label for="epub-file-input" class="w-full cursor-pointer flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        Import .epub Book
+      </label>
+      <label for="audio-file-input" class="w-full cursor-pointer flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-medium border border-themed hover:bg-black/5 transition-colors">
+        <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+        Import Audiobook (.mp3 / .m4b)
+      </label>
+    </div>
+  </aside>
+
+  <!-- Main Reading Area -->
+  <main id="drop-zone" class="flex-1 relative">
+    <!-- Helper Tip Banner (dismissible) -->
+    <div id="tip-banner" class="max-w-2xl mx-auto px-4 sm:px-6 pt-4">
+      <div class="rounded-xl border border-themed px-3.5 py-2.5 text-xs flex items-center justify-between gap-3 surface-panel">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span><strong>Tip:</strong> Tap any word or highlight a phrase to get an AI explanation in context. Drop an <code class="px-1 py-0.5 rounded bg-black/5">.epub</code> file anywhere to import.</span>
+        </div>
+        <button id="btn-dismiss-tip" type="button" class="p-1 rounded hover:bg-black/5 muted-text shrink-0" aria-label="Dismiss tip">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Chapter Content -->
+    <article id="reader-viewport" class="max-w-2xl mx-auto px-5 sm:px-8 py-6 sm:py-10 pb-36">
+      <div id="chapter-body" class="reader-prose"></div>
+
+      <!-- Continuous Scroll End-of-Book Footer -->
+      <div class="mt-14 pt-6 border-t border-themed flex items-center justify-between gap-3 text-xs muted-text">
+        <span id="chapter-progress">Section 1 of 1</span>
+        <button id="btn-back-to-top" type="button" class="px-3 py-1.5 rounded-lg border border-themed hover:bg-black/5 transition-colors font-medium">
+          Back to top &uarr;
+        </button>
+      </div>
+    </article>
+
+    <!-- Drag & Drop Overlay -->
+    <div id="drag-overlay" class="hidden fixed inset-0 z-50 bg-amber-600/15 backdrop-blur-sm border-4 border-dashed border-amber-600 flex items-center justify-center pointer-events-none">
+      <div class="px-6 py-4 rounded-2xl shadow-xl surface-panel text-center">
+        <div class="text-base font-semibold">Drop your .epub book to import</div>
+        <div class="text-xs muted-text mt-1">Parsed locally in your browser</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Floating "Explain Phrase" Pill (appears on text selection) -->
+  <button id="selection-explain-btn" type="button" class="hidden fixed z-40 px-3.5 py-2 rounded-full shadow-lg bg-amber-600 text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-amber-700 transition-transform active:scale-95">
+    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
+    Explain Phrase
+  </button>
+
+  <!-- AI Explanation Bottom Sheet / Side Card -->
+  <section id="ai-panel" class="hidden fixed bottom-0 left-0 right-0 sm:left-auto sm:right-5 sm:bottom-5 sm:w-[420px] max-w-full z-40 rounded-t-2xl sm:rounded-2xl border shadow-2xl surface-panel flex flex-col max-h-[75vh] transition-all">
+    <!-- Panel Header -->
+    <div class="px-4 py-3 border-b border-themed flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-600/15 text-amber-600 shrink-0">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
+        </span>
+        <div class="min-w-0">
+          <div id="ai-target-phrase" class="text-base font-bold truncate">Word</div>
+          <div id="ai-source-label" class="text-[11px] muted-text truncate">Contextual AI</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
+        <button id="btn-save-vocab" type="button" title="Save to Vocabulary" class="p-1.5 rounded-lg hover:bg-black/5 muted-text" aria-label="Save word or phrase">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
+        </button>
+        <button id="btn-close-ai" type="button" class="p-1.5 rounded-lg hover:bg-black/5 muted-text" aria-label="Close explanation">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Panel Body -->
+    <div id="ai-panel-body" class="p-4 overflow-y-auto space-y-3 text-base">
+      <!-- Context Quote -->
+      <div id="ai-context-quote" class="text-sm italic px-3 py-2 rounded-lg border border-themed muted-text bg-black/[0.03]"></div>
+
+      <!-- Loading State -->
+      <div id="ai-loading" class="hidden py-4 flex items-center gap-2 text-xs muted-text">
+        <div class="dot-pulse flex gap-1 text-amber-600"><span></span><span></span><span></span></div>
+        <span>Analyzing meaning in context...</span>
+      </div>
+
+      <!-- Explanation Result -->
+      <div id="ai-result" class="space-y-2.5 leading-relaxed"></div>
+
+      <!-- Quick Actions -->
+      <div id="ai-quick-actions" class="pt-2 flex flex-wrap gap-1.5">
+        <button id="btn-explain-sentence" type="button" class="px-2.5 py-1 rounded-lg border border-themed text-xs font-medium hover:bg-black/5 transition-colors">
+          Explain full sentence
+        </button>
+        <button id="btn-pronounce" type="button" class="px-2.5 py-1 rounded-lg border border-themed text-xs font-medium hover:bg-black/5 transition-colors">
+          Listen (US)
+        </button>
+        <button id="btn-read-from-here" type="button" class="px-2.5 py-1 rounded-lg border border-themed text-xs font-medium hover:bg-black/5 transition-colors">
+          Read from here
+        </button>
+        <button id="btn-open-shadow" type="button" class="px-2.5 py-1 rounded-lg bg-amber-600/15 text-amber-700 border border-amber-600/25 text-xs font-semibold hover:bg-amber-600/25 transition-colors">
+          Shadow Sentence
+        </button>
+      </div>
+
+      <!-- Sentence Shadowing & Voice-Record Comparison -->
+      <div id="shadowing-box" class="hidden mt-3 p-3 rounded-xl border border-themed bg-black/[0.03] space-y-2.5">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold">American Accent Shadowing</span>
+          <span id="shadow-status" class="text-[11px] muted-text">Ready</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="btn-shadow-model" type="button" class="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition-colors">
+            1. Play Model (en-US)
+          </button>
+          <button id="btn-shadow-record" type="button" class="px-3 py-1.5 rounded-lg border border-themed text-xs font-medium hover:bg-black/5 transition-colors">
+            2. Record Yourself
+          </button>
+          <button id="btn-shadow-playback" type="button" disabled class="px-3 py-1.5 rounded-lg border border-themed text-xs font-medium hover:bg-black/5 disabled:opacity-40 disabled:pointer-events-none transition-colors">
+            3. Play Yours
+          </button>
+        </div>
+        <div id="shadow-compare-note" class="text-[11px] muted-text leading-snug">
+          Listen to the American rhythm and connected speech, record yourself repeating the sentence, then compare both side-by-side.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sticky Read-Along & Audiobook Player Bar -->
+  <div id="audio-player-bar" class="hidden fixed bottom-0 left-0 right-0 z-30 border-t border-themed backdrop-blur-md shadow-lg transition-colors" style="background-color: color-mix(in srgb, var(--reader-surface) 95%, transparent);">
+    <div class="max-w-4xl mx-auto px-3 sm:px-5 py-2.5 space-y-2">
+      <!-- Top Row: Mode Switcher, Track/Status, Close -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <div class="inline-flex rounded-lg border border-themed p-0.5 text-[11px] font-medium shrink-0">
+            <button id="mode-tts-btn" type="button" class="px-2 py-0.5 rounded-md bg-amber-600 text-white transition-colors">AI Voice (US)</button>
+            <button id="mode-audiobook-btn" type="button" class="px-2 py-0.5 rounded-md muted-text hover:opacity-80 transition-colors">Audiobook</button>
+          </div>
+          <span id="player-status-text" class="text-xs muted-text truncate">Ready to read aloud</span>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <select id="voice-select" class="hidden sm:block max-w-[140px] text-[11px] px-2 py-1 rounded-lg border border-themed bg-transparent truncate" title="American English Voice"></select>
+          <button id="btn-speed-cycle" type="button" class="px-2 py-1 rounded-lg border border-themed text-xs font-semibold hover:bg-black/5" title="Playback Speed">1.0x</button>
+          <button id="btn-close-player" type="button" class="p-1 rounded-lg hover:bg-black/5 muted-text" aria-label="Close audio player">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Controls Row: TTS Mode -->
+      <div id="tts-controls-row" class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5">
+          <button id="btn-tts-prev" type="button" class="px-2.5 py-1.5 rounded-lg border border-themed text-xs font-medium hover:bg-black/5" title="Previous Sentence">&larr; Prev</button>
+          <button id="btn-tts-play" type="button" class="px-3.5 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors">Play Read-Along</button>
+          <button id="btn-tts-next" type="button" class="px-2.5 py-1.5 rounded-lg border border-themed text-xs font-medium hover:bg-black/5" title="Next Sentence">Next &rarr;</button>
+        </div>
+        <button id="btn-tts-shadow-current" type="button" class="px-2.5 py-1.5 rounded-lg border border-themed text-xs font-medium hover:bg-black/5">Shadow Sentence</button>
+      </div>
+
+      <!-- Controls Row: Audiobook Mode -->
+      <div id="audiobook-controls-row" class="hidden space-y-1.5">
+        <div class="flex items-center gap-2">
+          <button id="btn-ab-back15" type="button" class="px-2 py-1 rounded-lg border border-themed text-[11px] font-medium hover:bg-black/5">-15s</button>
+          <button id="btn-ab-play" type="button" class="px-3 py-1 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700">Play</button>
+          <button id="btn-ab-fwd15" type="button" class="px-2 py-1 rounded-lg border border-themed text-[11px] font-medium hover:bg-black/5">+15s</button>
+          <input id="ab-seek-slider" type="range" min="0" max="100" value="0" step="0.1" class="flex-1 accent-amber-600 cursor-pointer" />
+          <span id="ab-time-label" class="text-[11px] muted-text tabular-nums shrink-0">0:00 / 0:00</span>
+          <label for="audio-file-input" class="cursor-pointer px-2 py-1 rounded-lg border border-themed text-[11px] font-medium hover:bg-black/5 shrink-0">Load Audio</label>
+        </div>
+      </div>
+    </div>
+  </div>
+  <audio id="audiobook-element" class="hidden"></audio>
+
+  <!-- AI Settings Modal -->
+  <div id="ai-modal-backdrop" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-md rounded-2xl border shadow-2xl p-5 surface-panel">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-base font-semibold">AI Explanation Engine</h3>
+        <button id="btn-close-ai-modal" type="button" class="p-1 rounded-lg hover:bg-black/5 muted-text" aria-label="Close AI settings">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <p class="text-xs muted-text leading-relaxed mb-3">
+        Steven N. Ebook works immediately using its built-in bilingual dictionary &amp; encyclopedia engine, or you can connect your own <strong>OpenAI (GPT)</strong> or <strong>Google Gemini</strong> API key for generative literary explanations.
+      </p>
+
+      <!-- Active AI Provider Selector -->
+      <div class="mb-3">
+        <label class="block text-xs font-medium mb-1" for="ai-provider-select">Preferred AI Engine</label>
+        <select id="ai-provider-select" class="w-full px-3 py-2 rounded-xl border border-themed bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
+          <option value="auto">Auto (Use configured API key, else Built-in)</option>
+          <option value="openai">OpenAI GPT API</option>
+          <option value="gemini">Google Gemini API</option>
+          <option value="builtin">Built-in Smart Dictionary (Free)</option>
+        </select>
+      </div>
+
+      <!-- OpenAI GPT Key & Model -->
+      <div class="p-3 rounded-xl border border-themed mb-3 space-y-2">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold" for="openai-key-input">OpenAI GPT API Key</label>
+          <select id="openai-model-select" class="text-[11px] px-2 py-0.5 rounded-lg border border-themed bg-transparent" title="OpenAI Model">
+            <option value="gpt-4o-mini">gpt-4o-mini (Fast)</option>
+            <option value="gpt-4o">gpt-4o</option>
+          </select>
+        </div>
+        <input id="openai-key-input" type="password" placeholder="sk-..." class="w-full px-3 py-1.5 rounded-lg border border-themed bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
+      </div>
+
+      <!-- Gemini API Key -->
+      <div class="p-3 rounded-xl border border-themed mb-4 space-y-2">
+        <label class="block text-xs font-semibold" for="gemini-key-input">Google Gemini API Key</label>
+        <input id="gemini-key-input" type="password" placeholder="AIza..." class="w-full px-3 py-1.5 rounded-lg border border-themed bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-amber-600" />
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <button id="btn-clear-key" type="button" class="px-3 py-2 rounded-xl border border-themed text-xs font-medium hover:bg-black/5">Use Built-in Mode</button>
+        <button id="btn-save-key" type="button" class="px-4 py-2 rounded-xl bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700">Save Key</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full shadow-lg bg-neutral-900 text-white text-xs font-medium"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ==========================================
+      // 1. Themes & Appearance State
+      // ==========================================
+      const THEMES = [
+        { id: 'cream', name: 'Warm Cream', bg: '#fbf6ec', text: '#24211d', muted: '#6e655a', surface: '#f2eadb', border: 'rgba(36, 33, 29, 0.12)', accent: '#b45309', highlight: 'rgba(245, 158, 11, 0.28)' },
+        { id: 'white', name: 'Crisp White', bg: '#ffffff', text: '#18181b', muted: '#71717a', surface: '#f4f4f5', border: 'rgba(24, 24, 27, 0.12)', accent: '#d97706', highlight: 'rgba(245, 158, 11, 0.25)' },
+        { id: 'sepia', name: 'Classic Sepia', bg: '#f4ecd8', text: '#3b2e22', muted: '#786552', surface: '#eadec2', border: 'rgba(59, 46, 34, 0.14)', accent: '#9a3412', highlight: 'rgba(217, 119, 6, 0.25)' },
+        { id: 'sage', name: 'Soft Sage', bg: '#eaf2ec', text: '#1d2d24', muted: '#526b5c', surface: '#dce9df', border: 'rgba(29, 45, 36, 0.12)', accent: '#047857', highlight: 'rgba(16, 185, 129, 0.25)' },
+        { id: 'slate', name: 'Slate Night', bg: '#1e242b', text: '#e2e8f0', muted: '#94a3b8', surface: '#28303a', border: 'rgba(226, 232, 240, 0.12)', accent: '#f59e0b', highlight: 'rgba(245, 158, 11, 0.30)' },
+        { id: 'oled', name: 'Midnight', bg: '#111318', text: '#d4d4d8', muted: '#a1a1aa', surface: '#1b1e26', border: 'rgba(212, 212, 216, 0.14)', accent: '#fbbf24', highlight: 'rgba(251, 191, 36, 0.28)' }
+      ];
+
+      // ==========================================
+      // 2. Built-in Sample Books (Ready on Launch)
+      // ==========================================
+      const SAMPLE_BOOKS = [
+        {
+          id: 'sample-metamorphosis',
+          title: 'The Metamorphosis',
+          author: 'Franz Kafka',
+          isSample: true,
+          chapters: [
+            {
+              title: 'I. The Awakening',
+              html: `
+                <h1>I. The Awakening</h1>
+                <p>One morning, when Gregor Samsa woke from troubled dreams, he found himself transformed in his bed into a horrible vermin. He lay on his armour-like back, and if he lifted his head a little he could see his brown belly, slightly domed and divided by arches into stiff sections.</p>
+                <p>The bedding was hardly able to cover it and seemed ready to slide off any moment. His many legs, pitifully thin compared with the size of the rest of him, waved about helplessly as he looked.</p>
+                <p>"What's happened to me?" he thought. It wasn't a dream. His room, a proper human room although a little too small, lay peacefully between its four familiar walls. A collection of textile samples lay spread out on the table—Samsa was a travelling salesman—and above it there hung a picture that he had recently cut out of an illustrated magazine and housed in a nice, gilded frame.</p>
+                <p>It showed a lady fitted out with a fur hat and fur boa who sat upright, raising a heavy fur muff that covered the whole of her lower arm towards the viewer. Gregor then turned to look out the window at the dull weather. Drops of rain could be heard hitting the pane, which made him feel quite melancholic.</p>
+              `
+            },
+            {
+              title: 'II. The Burden of Duty',
+              html: `
+                <h1>II. The Burden of Duty</h1>
+                <p>"How about if I sleep a little bit longer and forget all this nonsense," he thought, but that was something he was unable to do because he was used to sleeping on his right, and in his present state couldn't get into that position.</p>
+                <p>However hard he threw himself onto his right, he always rolled back to where he was. He must have tried it a hundred times, shut his eyes so that he wouldn't have to look at the floundering legs, and only stopped when he began to feel a mild, dull pain there that he had never felt before.</p>
+                <p>"Oh, God," he thought, "what a strenuous career it is that I've chosen! Travelling day in and day out. Doing business like this takes much more effort than doing your own business at home, and on top of that there's the curse of travelling, worries about making train connections, bad and irregular food, contact with different people all the time so that you can never get to know anyone or become friendly with them."</p>
+              `
+            }
+          ]
+        },
+        {
+          id: 'sample-alice',
+          title: "Alice's Adventures in Wonderland",
+          author: 'Lewis Carroll',
+          isSample: true,
+          chapters: [
+            {
+              title: 'Chapter I: Down the Rabbit-Hole',
+              html: `
+                <h1>Chapter I: Down the Rabbit-Hole</h1>
+                <p>Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it, "and what is the use of a book," thought Alice, "without pictures or conversations?"</p>
+                <p>So she was considering in her own mind (as well as she could, for the hot day made her feel very sleepy and stupid), whether the pleasure of making a daisy-chain would be worth the trouble of getting up and picking the daisies, when suddenly a White Rabbit with pink eyes ran close by her.</p>
+                <p>There was nothing so very remarkable in that; nor did Alice think it so very much out of the way to hear the Rabbit say to itself, "Oh dear! Oh dear! I shall be late!" (when she thought it over afterwards, it occurred to she ought to have wondered at this, but at the time it all seemed quite natural); but when the Rabbit actually took a watch out of its waistcoat-pocket, and looked at it, and then hurried on, Alice started to her feet, for it flashed across her mind that she had never before seen a rabbit with either a waistcoat-pocket, or a watch to take out of it.</p>
+              `
+            }
+          ]
+        }
+      ];
+
+      // ==========================================
+      // 3. Application State
+      // ==========================================
+      const state = {
+        books: [...SAMPLE_BOOKS],
+        currentBookId: SAMPLE_BOOKS[0].id,
+        currentChapterIdx: 0,
+        drawerTab: 'chapters', // 'chapters' | 'library' | 'saved'
+        savedVocab: [],
+        settings: {
+          fontSize: 19,
+          fontFamily: 'serif',
+          themeId: 'cream',
+          customBg: null,
+          aiProvider: 'auto',
+          openaiKey: '',
+          openaiModel: 'gpt-4o-mini',
+          geminiKey: ''
+        },
+        currentExplanation: null
+      };
+
+      // Load persisted settings safely
+      try {
+        const saved = localStorage.getItem('lumina_reader_settings');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          state.settings = { ...state.settings, ...parsed };
+        }
+        const vocab = localStorage.getItem('lumina_reader_vocab');
+        if (vocab) state.savedVocab = JSON.parse(vocab);
+      } catch (_) {}
+
+      function persistSettings() {
+        try {
+          localStorage.setItem('lumina_reader_settings', JSON.stringify(state.settings));
+        } catch (_) {}
+      }
+
+      function persistVocab() {
+        try {
+          localStorage.setItem('lumina_reader_vocab', JSON.stringify(state.savedVocab));
+        } catch (_) {}
+      }
+
+      // ==========================================
+      // 3b. Persistent Book Storage (IndexedDB) & Reading Progress
+      // ==========================================
+      const DB_NAME = 'lumina_epub_db';
+      const DB_STORE = 'books';
+
+      function openBookDb() {
+        return new Promise((resolve, reject) => {
+          if (typeof indexedDB === 'undefined') return reject(new Error('No IndexedDB'));
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(DB_STORE)) {
+              db.createObjectStore(DB_STORE, { keyPath: 'id' });
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function saveImportedBookToDb(book) {
+        try {
+          const db = await openBookDb();
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, 'readwrite');
+            tx.objectStore(DB_STORE).put(book);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+        } catch (_) {}
+      }
+
+      async function deleteBookFromDb(bookId) {
+        try {
+          const db = await openBookDb();
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, 'readwrite');
+            tx.objectStore(DB_STORE).delete(bookId);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+        } catch (_) {}
+      }
+
+      async function loadStoredBooksFromDb() {
+        try {
+          const db = await openBookDb();
+          return await new Promise((resolve, reject) => {
+            const tx = db.transaction(DB_STORE, 'readonly');
+            const req = tx.objectStore(DB_STORE).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
+          });
+        } catch (_) {
+          return [];
+        }
+      }
+
+      function getProgressMap() {
+        try {
+          const raw = localStorage.getItem('lumina_reader_progress');
+          return raw ? JSON.parse(raw) : {};
+        } catch (_) {
+          return {};
+        }
+      }
+
+      function saveReadingProgress() {
+        try {
+          const book = getCurrentBook();
+          if (!book) return;
+          const docHeight = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+          const ratio = Math.min(1, Math.max(0, window.scrollY / docHeight));
+          const map = getProgressMap();
+          map[book.id] = {
+            scrollY: Math.round(window.scrollY),
+            ratio: Number(ratio.toFixed(4)),
+            chapterIdx: state.currentChapterIdx,
+            sentenceIdx: typeof audioState !== 'undefined' ? audioState.currentSentenceIdx : 0,
+            updatedAt: Date.now()
+          };
+          localStorage.setItem('lumina_reader_progress', JSON.stringify(map));
+          localStorage.setItem('lumina_last_book_id', book.id);
+        } catch (_) {}
+      }
+
+      function restoreReadingProgress(bookId) {
+        try {
+          const map = getProgressMap();
+          const entry = map[bookId];
+          if (!entry) {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+          }
+          setTimeout(() => {
+            const docHeight = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+            const targetY = entry.scrollY > 0 ? entry.scrollY : Math.round((entry.ratio || 0) * docHeight);
+            window.scrollTo({ top: targetY, behavior: 'auto' });
+            if (typeof entry.chapterIdx === 'number') {
+              updateActiveChapterHeader(entry.chapterIdx);
+            }
+            if (typeof audioState !== 'undefined' && typeof entry.sentenceIdx === 'number') {
+              audioState.currentSentenceIdx = Math.min(entry.sentenceIdx, Math.max(0, audioState.sentences.length - 1));
+            }
+            if (targetY > 120) {
+              const pct = Math.round((entry.ratio || 0) * 100);
+              showToast(`Resumed where you left off (${pct}%)`);
+            }
+          }, 60);
+        } catch (_) {}
+      }
+
+      // ==========================================
+      // 4. DOM Elements
+      // ==========================================
+      const el = {
+        headerBookTitle: document.getElementById('header-book-title'),
+        headerChapterTitle: document.getElementById('header-chapter-title'),
+        chapterBody: document.getElementById('chapter-body'),
+        chapterProgress: document.getElementById('chapter-progress'),
+        btnBackToTop: document.getElementById('btn-back-to-top'),
+        epubInput: document.getElementById('epub-file-input'),
+        dropZone: document.getElementById('drop-zone'),
+        dragOverlay: document.getElementById('drag-overlay'),
+        tipBanner: document.getElementById('tip-banner'),
+        btnDismissTip: document.getElementById('btn-dismiss-tip'),
+        // Appearance
+        btnAppearance: document.getElementById('btn-appearance'),
+        appearancePopover: document.getElementById('appearance-popover'),
+        btnCloseAppearance: document.getElementById('btn-close-appearance'),
+        fontSizeSlider: document.getElementById('font-size-slider'),
+        fontSizeLabel: document.getElementById('font-size-label'),
+        btnFontDec: document.getElementById('btn-font-dec'),
+        btnFontInc: document.getElementById('btn-font-inc'),
+        btnFontSerif: document.getElementById('btn-font-serif'),
+        btnFontSans: document.getElementById('btn-font-sans'),
+        themeSwatches: document.getElementById('theme-swatches'),
+        customBgPicker: document.getElementById('custom-bg-picker'),
+        // Drawer
+        btnDrawer: document.getElementById('btn-drawer'),
+        drawerBackdrop: document.getElementById('drawer-backdrop'),
+        sideDrawer: document.getElementById('side-drawer'),
+        btnCloseDrawer: document.getElementById('btn-close-drawer'),
+        tabChapters: document.getElementById('tab-chapters'),
+        tabLibrary: document.getElementById('tab-library'),
+        tabSaved: document.getElementById('tab-saved'),
+        savedCount: document.getElementById('saved-count'),
+        drawerContent: document.getElementById('drawer-content'),
+        // AI Panel
+        selectionExplainBtn: document.getElementById('selection-explain-btn'),
+        aiPanel: document.getElementById('ai-panel'),
+        aiTargetPhrase: document.getElementById('ai-target-phrase'),
+        aiSourceLabel: document.getElementById('ai-source-label'),
+        aiContextQuote: document.getElementById('ai-context-quote'),
+        aiLoading: document.getElementById('ai-loading'),
+        aiResult: document.getElementById('ai-result'),
+        btnCloseAi: document.getElementById('btn-close-ai'),
+        btnSaveVocab: document.getElementById('btn-save-vocab'),
+        btnExplainSentence: document.getElementById('btn-explain-sentence'),
+        btnPronounce: document.getElementById('btn-pronounce'),
+        // AI Modal
+        btnAiSettings: document.getElementById('btn-ai-settings'),
+        aiModeBadge: document.getElementById('ai-mode-badge'),
+        aiModalBackdrop: document.getElementById('ai-modal-backdrop'),
+        btnCloseAiModal: document.getElementById('btn-close-ai-modal'),
+        aiProviderSelect: document.getElementById('ai-provider-select'),
+        openaiKeyInput: document.getElementById('openai-key-input'),
+        openaiModelSelect: document.getElementById('openai-model-select'),
+        geminiKeyInput: document.getElementById('gemini-key-input'),
+        btnSaveKey: document.getElementById('btn-save-key'),
+        btnClearKey: document.getElementById('btn-clear-key'),
+        toast: document.getElementById('toast'),
+        // Audio Player & Shadowing
+        audioFileInput: document.getElementById('audio-file-input'),
+        btnTogglePlayer: document.getElementById('btn-toggle-player'),
+        audioPlayerBar: document.getElementById('audio-player-bar'),
+        btnClosePlayer: document.getElementById('btn-close-player'),
+        modeTtsBtn: document.getElementById('mode-tts-btn'),
+        modeAudiobookBtn: document.getElementById('mode-audiobook-btn'),
+        playerStatusText: document.getElementById('player-status-text'),
+        voiceSelect: document.getElementById('voice-select'),
+        btnSpeedCycle: document.getElementById('btn-speed-cycle'),
+        ttsControlsRow: document.getElementById('tts-controls-row'),
+        btnTtsPrev: document.getElementById('btn-tts-prev'),
+        btnTtsPlay: document.getElementById('btn-tts-play'),
+        btnTtsNext: document.getElementById('btn-tts-next'),
+        btnTtsShadowCurrent: document.getElementById('btn-tts-shadow-current'),
+        audiobookControlsRow: document.getElementById('audiobook-controls-row'),
+        audiobookElement: document.getElementById('audiobook-element'),
+        btnAbBack15: document.getElementById('btn-ab-back15'),
+        btnAbPlay: document.getElementById('btn-ab-play'),
+        btnAbFwd15: document.getElementById('btn-ab-fwd15'),
+        abSeekSlider: document.getElementById('ab-seek-slider'),
+        abTimeLabel: document.getElementById('ab-time-label'),
+        btnReadFromHere: document.getElementById('btn-read-from-here'),
+        btnOpenShadow: document.getElementById('btn-open-shadow'),
+        shadowingBox: document.getElementById('shadowing-box'),
+        shadowStatus: document.getElementById('shadow-status'),
+        btnShadowModel: document.getElementById('btn-shadow-model'),
+        btnShadowRecord: document.getElementById('btn-shadow-record'),
+        btnShadowPlayback: document.getElementById('btn-shadow-playback')
+      };
+
+      // ==========================================
+      // 5. Utilities
+      // ==========================================
+      function showToast(msg) {
+        el.toast.textContent = msg;
+        el.toast.classList.remove('hidden');
+        clearTimeout(showToast._timer);
+        showToast._timer = setTimeout(() => el.toast.classList.add('hidden'), 2600);
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function getContrastColor(hex) {
+        const clean = hex.replace('#', '');
+        const r = parseInt(clean.substring(0, 2), 16);
+        const g = parseInt(clean.substring(2, 4), 16);
+        const b = parseInt(clean.substring(4, 6), 16);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance > 0.55 ? { isDark: false, text: '#1f2937', muted: '#6b7280', surface: 'rgba(0,0,0,0.05)', border: 'rgba(0,0,0,0.12)' }
+                               : { isDark: true, text: '#f3f4f6', muted: '#9ca3af', surface: 'rgba(255,255,255,0.07)', border: 'rgba(255,255,255,0.14)' };
+      }
+
+      function getCurrentBook() {
+        return state.books.find(b => b.id === state.currentBookId) || state.books[0];
+      }
+
+      // ==========================================
+      // 6. Appearance Engine
+      // ==========================================
+      function applyAppearance() {
+        const root = document.documentElement;
+        const { fontSize, fontFamily, themeId, customBg, geminiKey } = state.settings;
+
+        root.style.setProperty('--reader-font-size', fontSize + 'px');
+        root.style.setProperty('--reader-font-family', fontFamily === 'serif'
+          ? "'Literata', Georgia, Cambria, serif"
+          : "'Inter', -apple-system, BlinkMacSystemFont, sans-serif");
+
+        el.fontSizeSlider.value = fontSize;
+        el.fontSizeLabel.textContent = fontSize + 'px';
+
+        // Font buttons active state
+        el.btnFontSerif.classList.toggle('ring-2', fontFamily === 'serif');
+        el.btnFontSerif.classList.toggle('ring-amber-600', fontFamily === 'serif');
+        el.btnFontSans.classList.toggle('ring-2', fontFamily === 'sans');
+        el.btnFontSans.classList.toggle('ring-amber-600', fontFamily === 'sans');
+
+        if (customBg) {
+          const contrast = getContrastColor(customBg);
+          root.style.setProperty('--reader-bg', customBg);
+          root.style.setProperty('--reader-text', contrast.text);
+          root.style.setProperty('--reader-muted', contrast.muted);
+          root.style.setProperty('--reader-surface', contrast.isDark ? '#1f232b' : '#f3f4f6');
+          root.style.setProperty('--reader-border', contrast.border);
+          root.style.setProperty('--reader-accent', contrast.isDark ? '#fbbf24' : '#b45309');
+          root.style.setProperty('--reader-highlight', 'rgba(245, 158, 11, 0.28)');
+          el.customBgPicker.value = customBg;
+        } else {
+          const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
+          root.style.setProperty('--reader-bg', theme.bg);
+          root.style.setProperty('--reader-text', theme.text);
+          root.style.setProperty('--reader-muted', theme.muted);
+          root.style.setProperty('--reader-surface', theme.surface);
+          root.style.setProperty('--reader-border', theme.border);
+          root.style.setProperty('--reader-accent', theme.accent);
+          root.style.setProperty('--reader-highlight', theme.highlight);
+          el.customBgPicker.value = theme.bg;
+        }
+
+        // Update swatches
+        el.themeSwatches.innerHTML = THEMES.map(t => {
+          const active = !customBg && themeId === t.id;
+          return `
+            <button type="button" data-theme-id="${t.id}" class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-left text-[11px] font-medium transition-all ${active ? 'ring-2 ring-amber-600 border-amber-600' : 'border-themed hover:opacity-85'}" style="background:${t.bg}; color:${t.text};">
+              <span class="w-3 h-3 rounded-full border border-black/20 shrink-0" style="background:${t.bg};"></span>
+              <span class="truncate">${t.name.split(' ')[1] || t.name}</span>
+            </button>
+          `;
+        }).join('');
+
+        const { aiProvider, openaiKey, openaiModel } = state.settings;
+        let activeLabel = 'Smart AI';
+        if (aiProvider === 'openai' && openaiKey) activeLabel = 'GPT AI';
+        else if (aiProvider === 'gemini' && geminiKey) activeLabel = 'Gemini AI';
+        else if (aiProvider === 'auto') {
+          if (openaiKey) activeLabel = 'GPT AI';
+          else if (geminiKey) activeLabel = 'Gemini AI';
+        }
+        el.aiModeBadge.textContent = activeLabel;
+        el.aiProviderSelect.value = aiProvider || 'auto';
+        el.openaiKeyInput.value = openaiKey || '';
+        el.openaiModelSelect.value = openaiModel || 'gpt-4o-mini';
+        el.geminiKeyInput.value = geminiKey || '';
+      }
+
+      // ==========================================
+      // 7. EPUB Parser (JSZip + DOMParser)
+      // ==========================================
+      function resolveZipPath(baseDir, relPath) {
+        if (!relPath) return '';
+        const clean = decodeURIComponent(relPath.split('#')[0]);
+        if (!baseDir) return clean;
+        const parts = (baseDir + '/' + clean).split('/');
+        const stack = [];
+        for (const p of parts) {
+          if (!p || p === '.') continue;
+          if (p === '..') stack.pop();
+          else stack.push(p);
+        }
+        return stack.join('/');
+      }
+
+      async function parseEpubFile(file) {
+        if (typeof JSZip === 'undefined') {
+          throw new Error('EPUB library failed to load. Please check your connection.');
+        }
+        const buffer = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(buffer);
+
+        // 1. Locate container.xml
+        const containerFile = zip.file('META-INF/container.xml');
+        if (!containerFile) throw new Error('Invalid EPUB: missing META-INF/container.xml');
+        const containerXml = await containerFile.async('text');
+        const parser = new DOMParser();
+        const containerDoc = parser.parseFromString(containerXml, 'application/xml');
+        const rootfileEl = containerDoc.querySelector('rootfile');
+        const opfPath = rootfileEl ? rootfileEl.getAttribute('full-path') : null;
+        if (!opfPath) throw new Error('Invalid EPUB: cannot find rootfile path');
+
+        const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/')) : '';
+        const opfFile = zip.file(opfPath);
+        if (!opfFile) throw new Error('Invalid EPUB: missing OPF package file');
+        const opfXml = await opfFile.async('text');
+        const opfDoc = parser.parseFromString(opfXml, 'application/xml');
+
+        // 2. Metadata
+        const titleEl = opfDoc.querySelector('metadata title, dc\\:title');
+        const authorEl = opfDoc.querySelector('metadata creator, dc\\:creator');
+        const bookTitle = (titleEl && titleEl.textContent.trim()) || file.name.replace(/\.epub$/i, '');
+        const bookAuthor = (authorEl && authorEl.textContent.trim()) || 'Unknown Author';
+
+        // 3. Manifest map
+        const manifest = {};
+        opfDoc.querySelectorAll('manifest > item').forEach(item => {
+          const id = item.getAttribute('id');
+          const href = item.getAttribute('href');
+          const mediaType = item.getAttribute('media-type') || '';
+          if (id && href) {
+            manifest[id] = { id, href, fullPath: resolveZipPath(opfDir, href), mediaType };
+          }
+        });
+
+        // 4. Spine order
+        const spineIds = [];
+        opfDoc.querySelectorAll('spine > itemref').forEach(ref => {
+          const idref = ref.getAttribute('idref');
+          if (idref && manifest[idref]) spineIds.push(idref);
+        });
+
+        // 5. Extract chapters & inline images
+        const imageCache = {};
+        async function getImageDataUrl(imgPath) {
+          if (imageCache[imgPath]) return imageCache[imgPath];
+          const zf = zip.file(imgPath);
+          if (!zf) return null;
+          const b64 = await zf.async('base64');
+          const ext = imgPath.split('.').pop().toLowerCase();
+          const mime = ext === 'png' ? 'image/png' : ext === 'svg' ? 'image/svg+xml' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          const url = `data:${mime};base64,${b64}`;
+          imageCache[imgPath] = url;
+          return url;
+        }
+
+        const chapters = [];
+        for (let i = 0; i < spineIds.length; i++) {
+          const item = manifest[spineIds[i]];
+          const zf = zip.file(item.fullPath);
+          if (!zf) continue;
+          const rawHtml = await zf.async('text');
+          const doc = parser.parseFromString(rawHtml, 'text/html');
+          const body = doc.body;
+          if (!body) continue;
+
+          // Remove scripts/styles from imported HTML
+          body.querySelectorAll('script, style, link').forEach(n => n.remove());
+
+          // Resolve images
+          const chapDir = item.fullPath.includes('/') ? item.fullPath.slice(0, item.fullPath.lastIndexOf('/')) : '';
+          const imgs = Array.from(body.querySelectorAll('img, image'));
+          for (const img of imgs) {
+            const src = img.getAttribute('src') || img.getAttribute('xlink:href');
+            if (src && !src.startsWith('data:') && !src.startsWith('http')) {
+              const resolved = resolveZipPath(chapDir, src);
+              const dataUrl = await getImageDataUrl(resolved);
+              if (dataUrl) img.setAttribute('src', dataUrl);
+            }
+          }
+
+          const textLen = (body.textContent || '').trim().length;
+          if (textLen === 0 && imgs.length === 0) continue;
+
+          const heading = body.querySelector('h1, h2, h3');
+          const chapTitle = (heading && heading.textContent.trim().slice(0, 80)) || `Section ${chapters.length + 1}`;
+          chapters.push({ title: chapTitle, html: body.innerHTML });
+        }
+
+        if (chapters.length === 0) {
+          throw new Error('No readable text chapters found in this EPUB.');
+        }
+
+        return {
+          id: 'epub-' + Date.now(),
+          title: bookTitle,
+          author: bookAuthor,
+          isSample: false,
+          chapters
+        };
+      }
+
+      // ==========================================
+      // 8. Word Tokenization & Chapter Rendering
+      // ==========================================
+      function tokenizeTextNodes(container) {
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+          acceptNode(node) {
+            if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+            const parent = node.parentElement;
+            if (!parent || ['SCRIPT', 'STYLE', 'CODE'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        });
+
+        const nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+
+        nodes.forEach(textNode => {
+          const text = textNode.nodeValue;
+          const parts = text.split(/(\s+)/);
+          const frag = document.createDocumentFragment();
+          parts.forEach(part => {
+            if (!part) return;
+            if (/^\s+$/.test(part)) {
+              frag.appendChild(document.createTextNode(part));
+            } else {
+              const span = document.createElement('span');
+              span.className = 'word-token';
+              span.textContent = part;
+              frag.appendChild(span);
+            }
+          });
+          textNode.parentNode.replaceChild(frag, textNode);
+        });
+      }
+
+      function updateActiveChapterHeader(idx) {
+        const book = getCurrentBook();
+        if (!book || !book.chapters[idx]) return;
+        state.currentChapterIdx = idx;
+        el.headerChapterTitle.textContent = `${book.author} • ${book.chapters[idx].title}`;
+        el.chapterProgress.textContent = `Section ${idx + 1} of ${book.chapters.length}`;
+      }
+
+      let chapterObserver = null;
+      function setupChapterScrollObserver() {
+        if (chapterObserver) chapterObserver.disconnect();
+        const sections = el.chapterBody.querySelectorAll('[data-chapter-section]');
+        if (!sections.length) return;
+        chapterObserver = new IntersectionObserver((entries) => {
+          const visible = entries
+            .filter(e => e.isIntersecting)
+            .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+          if (visible.length > 0) {
+            const idx = Number(visible[0].target.dataset.chapterSection);
+            if (idx !== state.currentChapterIdx) {
+              updateActiveChapterHeader(idx);
+              renderDrawer();
+            }
+          }
+        }, { rootMargin: '-80px 0px -65% 0px', threshold: 0 });
+        sections.forEach(sec => chapterObserver.observe(sec));
+      }
+
+      function renderChapter() {
+        const book = getCurrentBook();
+        if (!book) return;
+        state.currentChapterIdx = 0;
+
+        el.headerBookTitle.textContent = book.title;
+        updateActiveChapterHeader(0);
+
+        el.chapterBody.innerHTML = book.chapters.map((chapter, i) => `
+          <section id="chapter-section-${i}" data-chapter-section="${i}" class="${i > 0 ? 'mt-14 pt-10 border-t border-themed' : ''}">
+            ${chapter.html}
+          </section>
+        `).join('');
+
+        tokenizeTextNodes(el.chapterBody);
+        setupChapterScrollObserver();
+        restoreReadingProgress(book.id);
+        renderDrawer();
+      }
+
+      // ==========================================
+      // 9. Drawer (Chapters / Library / Saved)
+      // ==========================================
+      function openDrawer() {
+        el.drawerBackdrop.classList.remove('hidden');
+        el.sideDrawer.classList.remove('-translate-x-full');
+        renderDrawer();
+      }
+
+      function closeDrawer() {
+        el.sideDrawer.classList.add('-translate-x-full');
+        el.drawerBackdrop.classList.add('hidden');
+      }
+
+      function renderDrawer() {
+        el.savedCount.textContent = state.savedVocab.length;
+        const book = getCurrentBook();
+
+        [el.tabChapters, el.tabLibrary, el.tabSaved].forEach(t => {
+          t.classList.remove('border-amber-600', 'font-semibold');
+          t.classList.add('border-transparent', 'muted-text');
+        });
+        const activeTab = state.drawerTab === 'chapters' ? el.tabChapters : state.drawerTab === 'library' ? el.tabLibrary : el.tabSaved;
+        activeTab.classList.add('border-amber-600', 'font-semibold');
+        activeTab.classList.remove('border-transparent', 'muted-text');
+
+        if (state.drawerTab === 'chapters') {
+          el.drawerContent.innerHTML = book.chapters.map((ch, i) => `
+            <button type="button" data-chapter-idx="${i}" class="w-full text-left px-3 py-2.5 rounded-xl text-xs transition-colors ${i === state.currentChapterIdx ? 'bg-amber-600/15 text-amber-600 font-semibold' : 'hover:bg-black/5'}">
+              <div class="truncate">${escapeHtml(ch.title)}</div>
+            </button>
+          `).join('');
+        } else if (state.drawerTab === 'library') {
+          const progMap = getProgressMap();
+          el.drawerContent.innerHTML = state.books.map(b => {
+            const prog = progMap[b.id];
+            const pct = prog && prog.ratio ? Math.round(prog.ratio * 100) : 0;
+            return `
+            <div class="p-3 rounded-xl border transition-colors ${b.id === state.currentBookId ? 'border-amber-600 bg-amber-600/10' : 'border-themed hover:bg-black/5'}">
+              <button type="button" data-book-id="${b.id}" class="w-full text-left">
+                <div class="text-xs font-semibold truncate">${escapeHtml(b.title)}</div>
+                <div class="text-[11px] muted-text truncate mt-0.5">${escapeHtml(b.author)} &bull; ${b.chapters.length} section${b.chapters.length > 1 ? 's' : ''}</div>
+                <div class="flex items-center justify-between mt-1.5">
+                  ${b.isSample ? '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] bg-black/10">Sample</span>' : '<span class="inline-block px-1.5 py-0.5 rounded text-[10px] bg-amber-600/20 text-amber-700">Saved on Device</span>'}
+                  <span class="text-[10px] font-medium muted-text">${pct > 0 ? pct + '% read' : 'New'}</span>
+                </div>
+              </button>
+              ${!b.isSample ? `<div class="mt-2 pt-1.5 border-t border-themed flex justify-end"><button type="button" data-delete-book="${b.id}" class="text-[11px] muted-text hover:text-red-500">Remove from device</button></div>` : ''}
+            </div>
+          `;
+          }).join('');
+        } else {
+          if (state.savedVocab.length === 0) {
+            el.drawerContent.innerHTML = `<div class="text-xs muted-text text-center py-8">No saved words yet. Tap any word while reading and click the bookmark icon to save it.</div>`;
+          } else {
+            el.drawerContent.innerHTML = state.savedVocab.map((item, idx) => `
+              <div class="p-3 rounded-xl border border-themed space-y-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-bold">${escapeHtml(item.phrase)}</span>
+                  <button type="button" data-remove-vocab="${idx}" class="text-[11px] muted-text hover:text-red-500">Remove</button>
+                </div>
+                <div class="text-xs muted-text leading-snug">${escapeHtml(item.summary)}</div>
+              </div>
+            `).join('');
+          }
+        }
+      }
+
+      // ==========================================
+      // 10. Context Extraction & AI Explanation
+      // ==========================================
+      function cleanWord(raw) {
+        return raw.replace(/^[\s"'“”‘’(\[{]+|[\s"'“”‘’.,!?;:)\]}—–-]+$/g, '').trim();
+      }
+
+      function getContextSentence(element) {
+        const block = element.closest('p, blockquote, li, h1, h2, h3, h4, div');
+        if (!block) return element.textContent;
+        const fullText = block.textContent.replace(/\s+/g, ' ').trim();
+        if (fullText.length <= 360) return fullText;
+        const target = cleanWord(element.textContent);
+        const idx = fullText.toLowerCase().indexOf(target.toLowerCase());
+        if (idx === -1) return fullText.slice(0, 320) + '...';
+        const start = Math.max(0, idx - 140);
+        const end = Math.min(fullText.length, idx + target.length + 140);
+        return (start > 0 ? '...' : '') + fullText.slice(start, end) + (end < fullText.length ? '...' : '');
+      }
+
+      async function translateToVietnamese(text) {
+        if (!text || !text.trim()) return '';
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q=${encodeURIComponent(text)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && Array.isArray(data[0])) {
+              const joined = data[0].map(seg => seg[0] || '').join('').trim();
+              if (joined) return joined;
+            }
+          }
+        } catch (_) {}
+        try {
+          const mmUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.slice(0, 450))}&langpair=en|vi`;
+          const res = await fetch(mmUrl);
+          if (res.ok) {
+            const data = await res.json();
+            const translated = data?.responseData?.translatedText;
+            if (translated) return translated.trim();
+          }
+        } catch (_) {}
+        return '';
+      }
+
+      async function explainWithGemini(phrase, contextSentence, bookTitle, bookAuthor, isFullSentence) {
+        const apiKey = state.settings.geminiKey;
+        const prompt = isFullSentence
+          ? `You are a bilingual (English & Vietnamese) literary reading companion. The user is reading "${bookTitle}" by ${bookAuthor}. Explain the meaning, tone, and literary nuance of this passage:\n\n"${contextSentence}"\n\nFormat:\nEnglish: (2-3 clear sentences)\nTiếng Việt: (2-3 clear sentences explaining the meaning and nuance in natural Vietnamese)`
+          : `You are a bilingual (English & Vietnamese) reading companion. The user is reading "${bookTitle}" by ${bookAuthor} and tapped "${phrase}" in this context:\n"${contextSentence}"\n\nProvide:\nEnglish: Concise definition/explanation tailored to how "${phrase}" is used in this sentence (1-2 sentences + part of speech).\nTiếng Việt: Nghĩa và giải thích chi tiết theo ngữ cảnh câu trên bằng tiếng Việt tự nhiên (1-2 câu).`;
+
+        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 280 }
+          })
+        });
+        if (!resp.ok) throw new Error('Gemini API request failed (' + resp.status + ')');
+        const data = await resp.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('Empty response from Gemini');
+        return {
+          source: 'Gemini AI (Context-Aware)',
+          html: `<div class="whitespace-pre-line">${escapeHtml(text.trim())}</div>`,
+          summary: text.trim().slice(0, 140)
+        };
+      }
+
+      function renderVietnameseCard(viPhrase, viDetail) {
+        if (!viPhrase && !viDetail) return '';
+        return `
+          <div class="p-2.5 rounded-xl bg-emerald-600/10 border border-emerald-600/20 space-y-1">
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Tiếng Việt (Vietnamese)</div>
+            ${viPhrase ? `<div class="font-semibold">${escapeHtml(viPhrase)}</div>` : ''}
+            ${viDetail ? `<div class="text-sm opacity-90">${escapeHtml(viDetail)}</div>` : ''}
+          </div>
+        `;
+      }
+
+      async function explainWithBuiltInEngine(phrase, contextSentence, isFullSentence) {
+        if (isFullSentence) {
+          const words = phrase.split(/\s+/).filter(Boolean);
+          const viSentence = await translateToVietnamese(phrase);
+          return {
+            source: 'Contextual Passage Analyzer (EN / VI)',
+            html: `
+              ${renderVietnameseCard('', viSentence)}
+              <p><strong>Passage Overview:</strong> This ${words.length}-word sentence conveys a key moment in the narrative.</p>
+              <p class="text-xs muted-text">Tip: Tap any individual word in this sentence for its dictionary sense, or add a Gemini API key in AI Settings for deeper literary analysis.</p>
+            `,
+            summary: viSentence ? `${viSentence.slice(0, 120)}` : phrase.slice(0, 120)
+          };
+        }
+
+        const isSingleWord = !/\s/.test(phrase);
+        if (isSingleWord) {
+          try {
+            const [res, viWord] = await Promise.all([
+              fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(phrase.toLowerCase())}`),
+              translateToVietnamese(phrase)
+            ]);
+            if (res.ok) {
+              const entries = await res.json();
+              const entry = entries[0];
+              if (entry && entry.meanings && entry.meanings.length > 0) {
+                const ctxWords = new Set(contextSentence.toLowerCase().split(/\W+/));
+                let bestMeaning = entry.meanings[0];
+                let bestDef = bestMeaning.definitions[0];
+                let bestScore = -1;
+
+                for (const m of entry.meanings) {
+                  for (const d of m.definitions) {
+                    let score = 0;
+                    const defWords = (d.definition + ' ' + (d.example || '')).toLowerCase().split(/\W+/);
+                    defWords.forEach(w => { if (w.length > 3 && ctxWords.has(w)) score++; });
+                    if (score > bestScore) {
+                      bestScore = score;
+                      bestMeaning = m;
+                      bestDef = d;
+                    }
+                  }
+                }
+
+                const viDef = await translateToVietnamese(bestDef.definition);
+                const phonetic = entry.phonetic || (entry.phonetics && entry.phonetics.find(p => p.text)?.text) || '';
+                const altMeanings = entry.meanings.slice(0, 2).map(m =>
+                  `<div><span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold bg-amber-600/15 text-amber-700 mr-1.5">${escapeHtml(m.partOfSpeech)}</span>${escapeHtml(m.definitions[0].definition)}</div>`
+                ).join('');
+
+                return {
+                  source: 'Contextual Dictionary AI (EN / VI)',
+                  html: `
+                    ${phonetic ? `<div class="text-xs muted-text font-mono">${escapeHtml(phonetic)}</div>` : ''}
+                    ${renderVietnameseCard(viWord, viDef)}
+                    <div class="p-2.5 rounded-xl bg-amber-600/10 border border-amber-600/20">
+                      <div class="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-0.5">English Context (${escapeHtml(bestMeaning.partOfSpeech)})</div>
+                      <div>${escapeHtml(bestDef.definition)}</div>
+                    </div>
+                    ${entry.meanings.length > 1 ? `<div class="space-y-1.5 pt-1 text-sm muted-text">${altMeanings}</div>` : ''}
+                  `,
+                  summary: `${viWord ? viWord + ' — ' : ''}(${bestMeaning.partOfSpeech}) ${bestDef.definition}`
+                };
+              }
+            }
+          } catch (_) {}
+        }
+
+        // Multi-word phrase or proper noun: translate phrase + check Wikipedia
+        const [viPhrase, viContext] = await Promise.all([
+          translateToVietnamese(phrase),
+          !isSingleWord ? translateToVietnamese(contextSentence) : Promise.resolve('')
+        ]);
+
+        try {
+          const wikiRes = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(phrase)}`);
+          if (wikiRes.ok) {
+            const wiki = await wikiRes.json();
+            if (wiki && wiki.extract && wiki.type !== 'disambiguation') {
+              const snippet = wiki.extract.slice(0, 320) + (wiki.extract.length > 320 ? '...' : '');
+              const viExtract = await translateToVietnamese(snippet);
+              return {
+                source: 'Encyclopedia Context (EN / VI)',
+                html: `
+                  ${renderVietnameseCard(viPhrase, viExtract)}
+                  <p>${escapeHtml(snippet)}</p>
+                `,
+                summary: viPhrase ? `${viPhrase} — ${snippet.slice(0, 100)}` : snippet.slice(0, 140)
+              };
+            }
+          }
+        } catch (_) {}
+
+        return {
+          source: 'Contextual Reader (EN / VI)',
+          html: `
+            ${renderVietnameseCard(viPhrase, viContext ? `Ngữ cảnh: "${viContext}"` : '')}
+            <p><strong>"${escapeHtml(phrase)}"</strong> appears in this passage as a ${isSingleWord ? 'specific term or proper noun' : 'multi-word phrase'}.</p>
+          `,
+          summary: viPhrase || `Contextual phrase from "${getCurrentBook().title}"`
+        };
+      }
+
+      async function explainWithOpenAI(phrase, contextSentence, bookTitle, bookAuthor, isFullSentence) {
+        const apiKey = state.settings.openaiKey;
+        const model = state.settings.openaiModel || 'gpt-4o-mini';
+        const prompt = isFullSentence
+          ? `You are a bilingual (English & Vietnamese) literary reading companion. The user is reading "${bookTitle}" by ${bookAuthor}. Explain the meaning, tone, and literary nuance of this passage:\n\n"${contextSentence}"\n\nFormat:\nEnglish: (2-3 clear sentences)\nTiếng Việt: (2-3 clear sentences explaining the meaning and nuance in natural Vietnamese)`
+          : `You are a bilingual (English & Vietnamese) reading companion. The user is reading "${bookTitle}" by ${bookAuthor} and tapped "${phrase}" in this context:\n"${contextSentence}"\n\nProvide:\nEnglish: Concise definition/explanation tailored to how "${phrase}" is used in this sentence (1-2 sentences + part of speech).\nTiếng Việt: Nghĩa và giải thích chi tiết theo ngữ cảnh câu trên bằng tiếng Việt tự nhiên (1-2 câu).`;
+
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: 'system', content: 'You are a helpful bilingual English-Vietnamese literary reading assistant.' },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.3,
+            max_tokens: 320
+          })
+        });
+        if (!resp.ok) throw new Error('OpenAI API request failed (' + resp.status + ')');
+        const data = await resp.json();
+        const text = data?.choices?.[0]?.message?.content;
+        if (!text) throw new Error('Empty response from OpenAI');
+        return {
+          source: `OpenAI ${model} (EN / VI)`,
+          html: `<div class="whitespace-pre-line">${escapeHtml(text.trim())}</div>`,
+          summary: text.trim().slice(0, 140)
+        };
+      }
+
+      function resolveActiveProvider() {
+        const { aiProvider, openaiKey, geminiKey } = state.settings;
+        if (aiProvider === 'builtin') return 'builtin';
+        if (aiProvider === 'openai' && openaiKey) return 'openai';
+        if (aiProvider === 'gemini' && geminiKey) return 'gemini';
+        if (openaiKey) return 'openai';
+        if (geminiKey) return 'gemini';
+        return 'builtin';
+      }
+
+      async function triggerExplanation(phrase, contextSentence, isFullSentence = false) {
+        if (!phrase) return;
+        const book = getCurrentBook();
+        const provider = resolveActiveProvider();
+
+        el.aiPanel.classList.remove('hidden');
+        el.aiTargetPhrase.textContent = isFullSentence ? 'Sentence Context' : phrase;
+        el.aiSourceLabel.textContent = provider === 'openai' ? 'OpenAI GPT' : provider === 'gemini' ? 'Gemini AI' : 'Smart Contextual AI';
+        el.aiContextQuote.textContent = `"${contextSentence}"`;
+        el.aiResult.innerHTML = '';
+        el.aiLoading.classList.remove('hidden');
+        el.btnExplainSentence.classList.toggle('hidden', isFullSentence);
+
+        state.currentExplanation = { phrase, contextSentence, summary: '' };
+
+        try {
+          let result;
+          if (provider === 'openai') {
+            try {
+              result = await explainWithOpenAI(phrase, contextSentence, book.title, book.author, isFullSentence);
+            } catch (err) {
+              result = await explainWithBuiltInEngine(phrase, contextSentence, isFullSentence);
+              result.source += ' (GPT fallback)';
+            }
+          } else if (provider === 'gemini') {
+            try {
+              result = await explainWithGemini(phrase, contextSentence, book.title, book.author, isFullSentence);
+            } catch (err) {
+              result = await explainWithBuiltInEngine(phrase, contextSentence, isFullSentence);
+              result.source += ' (Gemini fallback)';
+            }
+          } else {
+            result = await explainWithBuiltInEngine(phrase, contextSentence, isFullSentence);
+          }
+
+          el.aiSourceLabel.textContent = result.source;
+          el.aiResult.innerHTML = result.html;
+          state.currentExplanation.summary = result.summary;
+        } finally {
+          el.aiLoading.classList.add('hidden');
+        }
+      }
+
+      // ==========================================
+      // 11. Event Listeners
+      // ==========================================
+      // Word tap / click
+      el.chapterBody.addEventListener('click', (e) => {
+        const selection = window.getSelection();
+        if (selection && selection.toString().trim().length > 0 && selection.toString().includes(' ')) {
+          return; // Let phrase selection handler handle multi-word highlights
+        }
+        const token = e.target.closest('.word-token');
+        if (!token) return;
+
+        el.chapterBody.querySelectorAll('.active-word').forEach(n => n.classList.remove('active-word'));
+        token.classList.add('active-word');
+
+        const word = cleanWord(token.textContent);
+        if (!word) return;
+        const contextSentence = getContextSentence(token);
+        triggerExplanation(word, contextSentence, false);
+      });
+
+      // Phrase selection (mouse & touch)
+      function checkSelection() {
+        const sel = window.getSelection();
+        const text = sel ? sel.toString().trim() : '';
+        if (text.length > 1 && el.chapterBody.contains(sel.anchorNode)) {
+          const range = sel.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          if (rect.width > 0) {
+            const top = Math.max(64, rect.top - 42);
+            const left = Math.min(window.innerWidth - 150, Math.max(12, rect.left + rect.width / 2 - 65));
+            el.selectionExplainBtn.style.top = top + 'px';
+            el.selectionExplainBtn.style.left = left + 'px';
+            el.selectionExplainBtn.classList.remove('hidden');
+            return;
+          }
+        }
+        el.selectionExplainBtn.classList.add('hidden');
+      }
+
+      document.addEventListener('mouseup', () => setTimeout(checkSelection, 20));
+      document.addEventListener('touchend', () => setTimeout(checkSelection, 120));
+
+      el.selectionExplainBtn.addEventListener('click', () => {
+        const sel = window.getSelection();
+        const phrase = sel ? sel.toString().trim() : '';
+        if (!phrase) return;
+        const anchorEl = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
+        const contextSentence = getContextSentence(anchorEl);
+        el.selectionExplainBtn.classList.add('hidden');
+        triggerExplanation(phrase, contextSentence, false);
+      });
+
+      // AI Panel controls
+      el.btnCloseAi.addEventListener('click', () => {
+        el.aiPanel.classList.add('hidden');
+        el.chapterBody.querySelectorAll('.active-word').forEach(n => n.classList.remove('active-word'));
+      });
+
+      el.btnExplainSentence.addEventListener('click', () => {
+        if (!state.currentExplanation) return;
+        triggerExplanation(state.currentExplanation.contextSentence, state.currentExplanation.contextSentence, true);
+      });
+
+
+
+      el.btnSaveVocab.addEventListener('click', () => {
+        if (!state.currentExplanation) return;
+        const { phrase, summary } = state.currentExplanation;
+        if (!state.savedVocab.some(v => v.phrase.toLowerCase() === phrase.toLowerCase())) {
+          state.savedVocab.unshift({ phrase, summary: summary || 'Saved from reading' });
+          persistVocab();
+          renderDrawer();
+          showToast(`Saved "${phrase}"`);
+        } else {
+          showToast(`"${phrase}" is already saved`);
+        }
+      });
+
+      // EPUB Import (File Input & Drag-Drop)
+      async function handleEpubUpload(file) {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.epub')) {
+          showToast('Please select a valid .epub file');
+          return;
+        }
+        showToast('Importing EPUB...');
+        try {
+          const book = await parseEpubFile(file);
+          state.books = state.books.filter(b => b.title !== book.title || b.isSample);
+          state.books.unshift(book);
+          state.currentBookId = book.id;
+          state.currentChapterIdx = 0;
+          await saveImportedBookToDb(book);
+          try { localStorage.setItem('lumina_last_book_id', book.id); } catch (_) {}
+          renderChapter();
+          closeDrawer();
+          showToast(`Saved "${book.title}" to your library`);
+        } catch (err) {
+          showToast(err.message || 'Could not parse EPUB file');
+        }
+      }
+
+      el.epubInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        handleEpubUpload(file);
+        e.target.value = '';
+      });
+
+      window.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        el.dragOverlay.classList.remove('hidden');
+      });
+      window.addEventListener('dragleave', (e) => {
+        if (e.relatedTarget === null) el.dragOverlay.classList.add('hidden');
+      });
+      window.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.dragOverlay.classList.add('hidden');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleEpubUpload(e.dataTransfer.files[0]);
+        }
+      });
+
+      // Appearance Popover
+      el.btnAppearance.addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.appearancePopover.classList.toggle('hidden');
+      });
+      el.btnCloseAppearance.addEventListener('click', () => el.appearancePopover.classList.add('hidden'));
+
+      el.fontSizeSlider.addEventListener('input', (e) => {
+        state.settings.fontSize = Number(e.target.value);
+        applyAppearance();
+        persistSettings();
+      });
+      el.btnFontDec.addEventListener('click', () => {
+        state.settings.fontSize = Math.max(13, state.settings.fontSize - 1);
+        applyAppearance();
+        persistSettings();
+      });
+      el.btnFontInc.addEventListener('click', () => {
+        state.settings.fontSize = Math.min(32, state.settings.fontSize + 1);
+        applyAppearance();
+        persistSettings();
+      });
+      el.btnFontSerif.addEventListener('click', () => {
+        state.settings.fontFamily = 'serif';
+        applyAppearance();
+        persistSettings();
+      });
+      el.btnFontSans.addEventListener('click', () => {
+        state.settings.fontFamily = 'sans';
+        applyAppearance();
+        persistSettings();
+      });
+      el.themeSwatches.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-theme-id]');
+        if (!btn) return;
+        state.settings.themeId = btn.dataset.themeId;
+        state.settings.customBg = null;
+        applyAppearance();
+        persistSettings();
+      });
+      el.customBgPicker.addEventListener('input', (e) => {
+        state.settings.customBg = e.target.value;
+        applyAppearance();
+        persistSettings();
+      });
+
+      // Drawer Events
+      el.btnDrawer.addEventListener('click', openDrawer);
+      el.btnCloseDrawer.addEventListener('click', closeDrawer);
+      el.drawerBackdrop.addEventListener('click', closeDrawer);
+
+      el.tabChapters.addEventListener('click', () => { state.drawerTab = 'chapters'; renderDrawer(); });
+      el.tabLibrary.addEventListener('click', () => { state.drawerTab = 'library'; renderDrawer(); });
+      el.tabSaved.addEventListener('click', () => { state.drawerTab = 'saved'; renderDrawer(); });
+
+      el.drawerContent.addEventListener('click', (e) => {
+        const chapBtn = e.target.closest('[data-chapter-idx]');
+        if (chapBtn) {
+          const idx = Number(chapBtn.dataset.chapterIdx);
+          updateActiveChapterHeader(idx);
+          closeDrawer();
+          const targetSection = document.getElementById(`chapter-section-${idx}`);
+          if (targetSection) {
+            const y = targetSection.getBoundingClientRect().top + window.scrollY - 72;
+            window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+          }
+          return;
+        }
+        const delBookBtn = e.target.closest('[data-delete-book]');
+        if (delBookBtn) {
+          const delId = delBookBtn.dataset.deleteBook;
+          state.books = state.books.filter(b => b.id !== delId);
+          deleteBookFromDb(delId);
+          if (state.currentBookId === delId) {
+            state.currentBookId = state.books[0].id;
+            renderChapter();
+          } else {
+            renderDrawer();
+          }
+          showToast('Removed book from device');
+          return;
+        }
+        const bookBtn = e.target.closest('[data-book-id]');
+        if (bookBtn) {
+          saveReadingProgress();
+          state.currentBookId = bookBtn.dataset.bookId;
+          try { localStorage.setItem('lumina_last_book_id', state.currentBookId); } catch (_) {}
+          state.currentChapterIdx = 0;
+          state.drawerTab = 'chapters';
+          renderChapter();
+          closeDrawer();
+          return;
+        }
+        const remBtn = e.target.closest('[data-remove-vocab]');
+        if (remBtn) {
+          const idx = Number(remBtn.dataset.removeVocab);
+          state.savedVocab.splice(idx, 1);
+          persistVocab();
+          renderDrawer();
+        }
+      });
+
+      // Back to Top
+      el.btnBackToTop.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+
+      // AI Settings Modal
+      el.btnAiSettings.addEventListener('click', () => el.aiModalBackdrop.classList.remove('hidden'));
+      el.btnCloseAiModal.addEventListener('click', () => el.aiModalBackdrop.classList.add('hidden'));
+      el.btnSaveKey.addEventListener('click', () => {
+        state.settings.aiProvider = el.aiProviderSelect.value;
+        state.settings.openaiKey = el.openaiKeyInput.value.trim();
+        state.settings.openaiModel = el.openaiModelSelect.value;
+        state.settings.geminiKey = el.geminiKeyInput.value.trim();
+        persistSettings();
+        applyAppearance();
+        el.aiModalBackdrop.classList.add('hidden');
+        const active = resolveActiveProvider();
+        showToast(active === 'openai' ? `OpenAI (${state.settings.openaiModel}) enabled` : active === 'gemini' ? 'Gemini AI enabled' : 'Built-in Smart AI enabled');
+      });
+      el.btnClearKey.addEventListener('click', () => {
+        state.settings.aiProvider = 'builtin';
+        persistSettings();
+        applyAppearance();
+        el.aiModalBackdrop.classList.add('hidden');
+        showToast('Switched to Built-in Smart AI');
+      });
+
+      // Dismiss Tip Banner
+      el.btnDismissTip.addEventListener('click', () => el.tipBanner.classList.add('hidden'));
+
+      // Close popover on outside click
+      document.addEventListener('click', (e) => {
+        if (!el.appearancePopover.classList.contains('hidden') &&
+            !el.appearancePopover.contains(e.target) &&
+            !el.btnAppearance.contains(e.target)) {
+          el.appearancePopover.classList.add('hidden');
+        }
+      });
+
+      // ==========================================
+      // 11b. American Read-Along, Shadowing & Audiobook
+      // ==========================================
+      const SPEEDS = [0.75, 0.85, 1.0, 1.1, 1.25];
+      const audioState = {
+        mode: 'tts', // 'tts' | 'audiobook'
+        speedIdx: 2, // 1.0x
+        sentences: [], // [{ text, tokens: [HTMLElement], offsets: [{ start, end, token }] }]
+        currentSentenceIdx: 0,
+        isPlaying: false,
+        voices: [],
+        selectedVoiceURI: '',
+        fallbackTimer: null,
+        audiobookName: '',
+        audiobookUrl: null,
+        // Shadowing
+        mediaRecorder: null,
+        recordedChunks: [],
+        recordedAudioUrl: null,
+        isRecording: false
+      };
+
+      function getPlaybackSpeed() {
+        return SPEEDS[audioState.speedIdx] || 1.0;
+      }
+
+      function loadUsVoices() {
+        if (!('speechSynthesis' in window)) return;
+        const all = window.speechSynthesis.getVoices();
+        const us = all.filter(v => v.lang && v.lang.toLowerCase().startsWith('en-us'));
+        audioState.voices = us.length > 0 ? us : all.filter(v => v.lang && v.lang.toLowerCase().startsWith('en'));
+        if (audioState.voices.length > 0 && !audioState.selectedVoiceURI) {
+          const preferred = audioState.voices.find(v => /google us|samantha|jenny|aria|guy|natural/i.test(v.name)) || audioState.voices[0];
+          audioState.selectedVoiceURI = preferred.voiceURI;
+        }
+        el.voiceSelect.innerHTML = audioState.voices.map(v =>
+          `<option value="${escapeHtml(v.voiceURI)}" ${v.voiceURI === audioState.selectedVoiceURI ? 'selected' : ''}>${escapeHtml(v.name.replace(/Microsoft |Google /g, ''))}</option>`
+        ).join('');
+      }
+
+      if ('speechSynthesis' in window) {
+        loadUsVoices();
+        window.speechSynthesis.onvoiceschanged = loadUsVoices;
+      }
+
+      function getActiveUsVoice() {
+        return audioState.voices.find(v => v.voiceURI === audioState.selectedVoiceURI) || audioState.voices[0] || null;
+      }
+
+      function buildSentenceIndex() {
+        audioState.sentences = [];
+        const blocks = el.chapterBody.querySelectorAll('p, h1, h2, h3, h4, li, blockquote');
+        blocks.forEach(block => {
+          const tokens = Array.from(block.querySelectorAll('.word-token'));
+          if (!tokens.length) return;
+          let currentTokens = [];
+          tokens.forEach((tok, idx) => {
+            tok.dataset.sentenceIdx = String(audioState.sentences.length);
+            currentTokens.push(tok);
+            const txt = tok.textContent.trim();
+            const isEnd = /[.!?]["”’')\]]*$/.test(txt) || idx === tokens.length - 1;
+            if (isEnd && currentTokens.length > 0) {
+              let cursor = 0;
+              const offsets = [];
+              const parts = [];
+              currentTokens.forEach(t => {
+                const w = t.textContent;
+                offsets.push({ start: cursor, end: cursor + w.length, token: t });
+                parts.push(w);
+                cursor += w.length + 1;
+              });
+              const sentenceText = parts.join(' ').replace(/\s+/g, ' ').trim();
+              if (sentenceText) {
+                const sIdx = audioState.sentences.length;
+                currentTokens.forEach(t => { t.dataset.sentenceIdx = String(sIdx); });
+                audioState.sentences.push({ text: sentenceText, tokens: currentTokens, offsets });
+              }
+              currentTokens = [];
+            }
+          });
+        });
+      }
+
+      function clearTtsHighlights() {
+        el.chapterBody.querySelectorAll('.tts-active-word').forEach(n => n.classList.remove('tts-active-word'));
+        el.chapterBody.querySelectorAll('.tts-sentence-word').forEach(n => n.classList.remove('tts-sentence-word'));
+      }
+
+      function stopTts() {
+        audioState.isPlaying = false;
+        clearTimeout(audioState.fallbackTimer);
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        clearTtsHighlights();
+        el.btnTtsPlay.textContent = 'Play Read-Along';
+        if (audioState.mode === 'tts') el.playerStatusText.textContent = 'Paused';
+      }
+
+      function speakSentenceAt(idx) {
+        if (!('speechSynthesis' in window)) {
+          showToast('Speech synthesis not supported in this browser');
+          return;
+        }
+        if (idx < 0 || idx >= audioState.sentences.length) {
+          stopTts();
+          el.playerStatusText.textContent = 'Finished reading';
+          return;
+        }
+
+        clearTimeout(audioState.fallbackTimer);
+        window.speechSynthesis.cancel();
+        clearTtsHighlights();
+
+        audioState.currentSentenceIdx = idx;
+        audioState.isPlaying = true;
+        el.btnTtsPlay.textContent = 'Pause';
+        el.playerStatusText.textContent = `Sentence ${idx + 1} of ${audioState.sentences.length} (en-US)`;
+
+        const sent = audioState.sentences[idx];
+        sent.tokens.forEach(t => t.classList.add('tts-sentence-word'));
+        if (sent.tokens[0]) {
+          const rect = sent.tokens[0].getBoundingClientRect();
+          if (rect.top < 80 || rect.bottom > window.innerHeight - 130) {
+            sent.tokens[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+
+        const utter = new SpeechSynthesisUtterance(sent.text);
+        const voice = getActiveUsVoice();
+        if (voice) utter.voice = voice;
+        utter.lang = 'en-US';
+        utter.rate = getPlaybackSpeed();
+
+        let boundaryFired = false;
+        utter.onboundary = (ev) => {
+          if (ev.name !== 'word') return;
+          boundaryFired = true;
+          clearTimeout(audioState.fallbackTimer);
+          const charIdx = ev.charIndex;
+          const match = sent.offsets.find(o => charIdx >= o.start - 1 && charIdx <= o.end + 1)
+            || sent.offsets.reduce((best, o) => Math.abs(o.start - charIdx) < Math.abs(best.start - charIdx) ? o : best, sent.offsets[0]);
+          if (match && match.token) {
+            el.chapterBody.querySelectorAll('.tts-active-word').forEach(n => n.classList.remove('tts-active-word'));
+            match.token.classList.add('tts-active-word');
+          }
+        };
+
+        // Fallback progressive highlight if browser voice doesn't emit word boundaries
+        let fallbackIdx = 0;
+        const avgMsPerWord = Math.round(330 / getPlaybackSpeed());
+        function tickFallback() {
+          if (!audioState.isPlaying || boundaryFired || fallbackIdx >= sent.tokens.length) return;
+          el.chapterBody.querySelectorAll('.tts-active-word').forEach(n => n.classList.remove('tts-active-word'));
+          sent.tokens[fallbackIdx].classList.add('tts-active-word');
+          fallbackIdx++;
+          audioState.fallbackTimer = setTimeout(tickFallback, avgMsPerWord);
+        }
+        audioState.fallbackTimer = setTimeout(tickFallback, 180);
+
+        utter.onend = () => {
+          clearTimeout(audioState.fallbackTimer);
+          if (audioState.isPlaying) {
+            speakSentenceAt(idx + 1);
+          }
+        };
+
+        utter.onerror = () => {
+          clearTimeout(audioState.fallbackTimer);
+        };
+
+        window.speechSynthesis.speak(utter);
+      }
+
+      function setPlayerMode(mode) {
+        audioState.mode = mode;
+        if (mode === 'tts') {
+          el.audiobookElement.pause();
+          el.modeTtsBtn.classList.add('bg-amber-600', 'text-white');
+          el.modeTtsBtn.classList.remove('muted-text');
+          el.modeAudiobookBtn.classList.remove('bg-amber-600', 'text-white');
+          el.modeAudiobookBtn.classList.add('muted-text');
+          el.ttsControlsRow.classList.remove('hidden');
+          el.audiobookControlsRow.classList.add('hidden');
+          el.voiceSelect.classList.remove('hidden');
+          el.playerStatusText.textContent = audioState.isPlaying ? 'Reading aloud (en-US)' : 'AI Voice (en-US) ready';
+        } else {
+          stopTts();
+          el.modeAudiobookBtn.classList.add('bg-amber-600', 'text-white');
+          el.modeAudiobookBtn.classList.remove('muted-text');
+          el.modeTtsBtn.classList.remove('bg-amber-600', 'text-white');
+          el.modeTtsBtn.classList.add('muted-text');
+          el.ttsControlsRow.classList.add('hidden');
+          el.audiobookControlsRow.classList.remove('hidden');
+          el.voiceSelect.classList.add('hidden');
+          el.playerStatusText.textContent = audioState.audiobookName || 'No audiobook loaded yet';
+        }
+      }
+
+      function formatTime(sec) {
+        if (!Number.isFinite(sec) || sec < 0) return '0:00';
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${s < 10 ? '0' : ''}${s}`;
+      }
+
+      el.btnTogglePlayer.addEventListener('click', () => {
+        el.audioPlayerBar.classList.toggle('hidden');
+      });
+      el.btnClosePlayer.addEventListener('click', () => {
+        stopTts();
+        el.audiobookElement.pause();
+        el.audioPlayerBar.classList.add('hidden');
+      });
+      el.modeTtsBtn.addEventListener('click', () => setPlayerMode('tts'));
+      el.modeAudiobookBtn.addEventListener('click', () => setPlayerMode('audiobook'));
+
+      el.voiceSelect.addEventListener('change', (e) => {
+        audioState.selectedVoiceURI = e.target.value;
+        if (audioState.isPlaying) speakSentenceAt(audioState.currentSentenceIdx);
+      });
+
+      el.btnSpeedCycle.addEventListener('click', () => {
+        audioState.speedIdx = (audioState.speedIdx + 1) % SPEEDS.length;
+        const spd = getPlaybackSpeed();
+        el.btnSpeedCycle.textContent = spd + 'x';
+        el.audiobookElement.playbackRate = spd;
+        if (audioState.mode === 'tts' && audioState.isPlaying) {
+          speakSentenceAt(audioState.currentSentenceIdx);
+        }
+      });
+
+      el.btnTtsPlay.addEventListener('click', () => {
+        if (audioState.isPlaying) stopTts();
+        else speakSentenceAt(audioState.currentSentenceIdx);
+      });
+      el.btnTtsPrev.addEventListener('click', () => {
+        speakSentenceAt(Math.max(0, audioState.currentSentenceIdx - 1));
+      });
+      el.btnTtsNext.addEventListener('click', () => {
+        speakSentenceAt(Math.min(audioState.sentences.length - 1, audioState.currentSentenceIdx + 1));
+      });
+
+      el.btnTtsShadowCurrent.addEventListener('click', () => {
+        const sent = audioState.sentences[audioState.currentSentenceIdx];
+        if (!sent) return;
+        stopTts();
+        triggerExplanation(sent.text, sent.text, true);
+        el.shadowingBox.classList.remove('hidden');
+      });
+
+      // Speak from tapped word in AI Panel
+      el.btnReadFromHere.addEventListener('click', () => {
+        const activeToken = el.chapterBody.querySelector('.active-word');
+        const sIdx = activeToken && activeToken.dataset.sentenceIdx ? Number(activeToken.dataset.sentenceIdx) : 0;
+        el.audioPlayerBar.classList.remove('hidden');
+        setPlayerMode('tts');
+        speakSentenceAt(sIdx);
+      });
+
+      // Update Listen (US) button to use en-US voice at selected speed
+      el.btnPronounce.onclick = null;
+      el.btnPronounce.addEventListener('click', () => {
+        if (!state.currentExplanation || !('speechSynthesis' in window)) {
+          showToast('Speech synthesis unavailable');
+          return;
+        }
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(state.currentExplanation.phrase);
+        const voice = getActiveUsVoice();
+        if (voice) utter.voice = voice;
+        utter.lang = 'en-US';
+        utter.rate = getPlaybackSpeed();
+        window.speechSynthesis.speak(utter);
+      });
+
+      // Shadowing Studio
+      el.btnOpenShadow.addEventListener('click', () => {
+        el.shadowingBox.classList.toggle('hidden');
+      });
+
+      el.btnShadowModel.addEventListener('click', () => {
+        if (!state.currentExplanation || !('speechSynthesis' in window)) return;
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(state.currentExplanation.contextSentence);
+        const voice = getActiveUsVoice();
+        if (voice) utter.voice = voice;
+        utter.lang = 'en-US';
+        utter.rate = getPlaybackSpeed();
+        el.shadowStatus.textContent = 'Playing model...';
+        utter.onend = () => { el.shadowStatus.textContent = 'Your turn to record'; };
+        window.speechSynthesis.speak(utter);
+      });
+
+      el.btnShadowRecord.addEventListener('click', async () => {
+        if (audioState.isRecording && audioState.mediaRecorder) {
+          audioState.mediaRecorder.stop();
+          return;
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          showToast('Microphone recording not supported in this browser');
+          return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioState.recordedChunks = [];
+          const recorder = new MediaRecorder(stream);
+          audioState.mediaRecorder = recorder;
+          audioState.isRecording = true;
+          el.btnShadowRecord.textContent = 'Stop Recording';
+          el.btnShadowRecord.classList.add('bg-red-600', 'text-white');
+          el.shadowStatus.textContent = 'Recording...';
+
+          recorder.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size > 0) audioState.recordedChunks.push(ev.data);
+          };
+          recorder.onstop = () => {
+            audioState.isRecording = false;
+            stream.getTracks().forEach(t => t.stop());
+            el.btnShadowRecord.textContent = '2. Record Yourself';
+            el.btnShadowRecord.classList.remove('bg-red-600', 'text-white');
+            if (audioState.recordedAudioUrl) URL.revokeObjectURL(audioState.recordedAudioUrl);
+            const blob = new Blob(audioState.recordedChunks, { type: recorder.mimeType || 'audio/webm' });
+            audioState.recordedAudioUrl = URL.createObjectURL(blob);
+            el.btnShadowPlayback.disabled = false;
+            el.shadowStatus.textContent = 'Recorded! Compare below';
+          };
+          recorder.start();
+        } catch (err) {
+          el.shadowStatus.textContent = 'Mic permission needed';
+          showToast('Please allow microphone access to record your voice');
+        }
+      });
+
+      el.btnShadowPlayback.addEventListener('click', () => {
+        if (!audioState.recordedAudioUrl) return;
+        const audio = new Audio(audioState.recordedAudioUrl);
+        el.shadowStatus.textContent = 'Playing your recording...';
+        audio.onended = () => { el.shadowStatus.textContent = 'Ready to compare'; };
+        audio.play();
+      });
+
+      // Audiobook Import & Controls
+      function handleAudiobookFile(file) {
+        if (!file) return;
+        if (audioState.audiobookUrl) URL.revokeObjectURL(audioState.audiobookUrl);
+        audioState.audiobookUrl = URL.createObjectURL(file);
+        audioState.audiobookName = file.name.replace(/\.[^.]+$/, '');
+        el.audiobookElement.src = audioState.audiobookUrl;
+        el.audiobookElement.playbackRate = getPlaybackSpeed();
+        el.audioPlayerBar.classList.remove('hidden');
+        setPlayerMode('audiobook');
+        closeDrawer();
+        el.audiobookElement.play().then(() => {
+          el.btnAbPlay.textContent = 'Pause';
+        }).catch(() => {});
+        showToast(`Loaded audiobook "${audioState.audiobookName}"`);
+      }
+
+      el.audioFileInput.addEventListener('change', (e) => {
+        if (e.target.files[0]) handleAudiobookFile(e.target.files[0]);
+        e.target.value = '';
+      });
+
+      el.btnAbPlay.addEventListener('click', () => {
+        if (!audioState.audiobookUrl) {
+          el.audioFileInput.click();
+          return;
+        }
+        if (el.audiobookElement.paused) {
+          el.audiobookElement.play();
+          el.btnAbPlay.textContent = 'Pause';
+        } else {
+          el.audiobookElement.pause();
+          el.btnAbPlay.textContent = 'Play';
+        }
+      });
+      el.btnAbBack15.addEventListener('click', () => {
+        el.audiobookElement.currentTime = Math.max(0, el.audiobookElement.currentTime - 15);
+      });
+      el.btnAbFwd15.addEventListener('click', () => {
+        el.audiobookElement.currentTime = Math.min(el.audiobookElement.duration || 0, el.audiobookElement.currentTime + 15);
+      });
+      el.audiobookElement.addEventListener('timeupdate', () => {
+        const dur = el.audiobookElement.duration || 0;
+        const cur = el.audiobookElement.currentTime || 0;
+        if (dur > 0) el.abSeekSlider.value = (cur / dur) * 100;
+        el.abTimeLabel.textContent = `${formatTime(cur)} / ${formatTime(dur)}`;
+      });
+      el.abSeekSlider.addEventListener('input', (e) => {
+        const dur = el.audiobookElement.duration || 0;
+        if (dur > 0) el.audiobookElement.currentTime = (Number(e.target.value) / 100) * dur;
+      });
+      el.audiobookElement.addEventListener('ended', () => {
+        el.btnAbPlay.textContent = 'Play';
+      });
+
+      // Hook buildSentenceIndex after renderChapter
+      const _origRenderChapter = renderChapter;
+      renderChapter = function () {
+        stopTts();
+        _origRenderChapter();
+        buildSentenceIndex();
+      };
+
+      // Allow dropping audio files onto window as well as EPUBs
+      window.addEventListener('drop', (e) => {
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f && /\.(mp3|m4a|m4b|wav|ogg)$/i.test(f.name)) {
+          handleAudiobookFile(f);
+        }
+      });
+
+      // ==========================================
+      // 12. Initialize & Auto-Save Scroll Position
+      // ==========================================
+      let scrollSaveTimer = null;
+      window.addEventListener('scroll', () => {
+        clearTimeout(scrollSaveTimer);
+        scrollSaveTimer = setTimeout(saveReadingProgress, 250);
+      }, { passive: true });
+
+      window.addEventListener('beforeunload', saveReadingProgress);
+
+      async function initApp() {
+        applyAppearance();
+        const storedBooks = await loadStoredBooksFromDb();
+        if (storedBooks && storedBooks.length > 0) {
+          state.books = [...storedBooks, ...SAMPLE_BOOKS];
+        }
+        try {
+          const lastId = localStorage.getItem('lumina_last_book_id');
+          if (lastId && state.books.some(b => b.id === lastId)) {
+            state.currentBookId = lastId;
+          } else if (storedBooks.length > 0) {
+            state.currentBookId = storedBooks[0].id;
+          }
+        } catch (_) {}
+        renderChapter();
+      }
+
+      initApp();
+    })();
+  </script>
+</body>
+</html>
